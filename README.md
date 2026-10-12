@@ -110,12 +110,6 @@ The pipeline runs the original scorer automatically. To check the saved files ag
 The scorer checks IDs, columns and prediction values, then creates the December
 chart. It does not calculate the hidden-label score.
 
-To check invalid-weight cleaning, training-only imputation and unseen categories:
-
-```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-```
-
 The run also saves model files, package versions and input hashes locally.
 `Spotter_Freight_Submission.zip` contains the handoff files without the model binaries.
 The 2-3 minute Loom recording is a separate submission item.
