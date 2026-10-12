@@ -1,6 +1,11 @@
+# CSV handling, calculations and the supplied scorer
 matplotlib>=3.8,<4
 numpy>=1.26,<3
 pandas>=2.0,<3
+
+# Model training and saved pipelines
 scikit-learn>=1.4,<2
 joblib>=1.3,<2
+
+# Notebook display helpers
 ipython>=8,<10

@@ -49,6 +49,7 @@ def paths_in(folder):
     return {key: next((folder / name for name in names if (folder / name).is_file()),
                       folder / names[0]) for key, names in FILE_ALIASES.items()}
 
+# An explicit data folder takes priority over automatic discovery.
 override = os.environ.get('SPOTTER_DATA_DIR')
 if override:
     candidates = [Path(override).expanduser().resolve()]
@@ -97,6 +98,7 @@ display(pd.DataFrame([{'dataset':k,'rows':len(f),'columns':len(f.columns)} for k
 print('Training:', train.date.min().date(), 'to', train.date.max().date())
 print('Prediction:', validation.date.min().date(), 'to', validation.date.max().date())
 
+
 quality = pd.DataFrame({'missing':train.isna().sum(),'dtype':train.dtypes.astype(str)})
 display(quality)
 print('Duplicate predictor rows:', train.duplicated(FULL).sum())
@@ -113,6 +115,7 @@ print('Monthly medians also depend on which loads appear that month.')
 
 
 def features(frame, mode):
+    """Build predictors from the fields available for this input set."""
     cols = FULL if mode == 'full' else CORE
     x = frame[cols].copy()
     d = pd.to_datetime(x.pop('date'), errors='raise')
@@ -138,6 +141,7 @@ def features(frame, mode):
 X = {mode:features(train,mode) for mode in ['full','core']}
 # Keep the source units: miles, pounds and dollars.
 def build_model(x, name, config=None):
+    """Keep fitted preprocessing and regression in one pipeline."""
     cat = x.select_dtypes(include=['object','string']).columns.tolist()
     num = [c for c in x.columns if c not in cat]
     numeric = Pipeline([('impute',SimpleImputer(strategy='median')),('scale',StandardScaler())])
@@ -148,14 +152,17 @@ def build_model(x, name, config=None):
     else:
         categorical = Pipeline([('impute',SimpleImputer(strategy='most_frequent')),
                                 ('encode',OrdinalEncoder(handle_unknown='use_encoded_value',unknown_value=-1))])
+        # Disable HGB's random internal holdout; validation is chronological.
         estimator = (DummyRegressor(strategy='median') if name == 'median' else
                      HistGradientBoostingRegressor(max_iter=MAX_ITER,learning_rate=.06,
                      early_stopping=False,random_state=SEED,**config))
     return Pipeline([('preprocess',ColumnTransformer([('numeric',numeric,num),('categorical',categorical,cat)])),
                      ('model',estimator)])
 def predict_positive(model, x):
+    """Keep rates positive to match the scorer requirements."""
     return np.maximum(model.predict(x), .01)
 def metrics(y,p):
+    """Measure dollar errors, R2 and mean absolute percentage error."""
     return {'MAE':float(mean_absolute_error(y,p)), 'RMSE':float(np.sqrt(mean_squared_error(y,p))),
             'R2':float(r2_score(y,p)), 'MAPE_pct':float(np.mean(np.abs((np.asarray(y)-p)/np.asarray(y)))*100)}
 print('Feature counts:', {k:v.shape[1] for k,v in X.items()})
@@ -163,6 +170,7 @@ print('Feature counts:', {k:v.shape[1] for k,v in X.items()})
 
 FOLDS = [('August',pd.Timestamp('2025-08-01'),pd.Timestamp('2025-09-01')),
          ('September',pd.Timestamp('2025-09-01'),pd.Timestamp('2025-10-01'))]
+# Keep October outside the search so it can test the selected settings.
 TEST_START = pd.Timestamp('2025-10-01')
 rows=[]
 for label,start,end in FOLDS:
@@ -174,6 +182,7 @@ for label,start,end in FOLDS:
 split_table = pd.DataFrame(rows)
 display(split_table)
 print('Locked October rows:', int(train.date.ge(TEST_START).sum()))
+
 
 records=[]; specifications={}; winners={}
 for mode,x in X.items():
@@ -188,6 +197,7 @@ for mode,x in X.items():
             records.append({'mode':mode,'model':name,'fold':fold,'seconds':time.perf_counter()-began,
                             **metrics(train.loc[dev,TARGET],p)})
             print(mode,name,fold,'MAE:',round(records[-1]['MAE'],2))
+    # Rank on development folds only; October does not influence this choice.
     ranks=pd.DataFrame(records).query('mode == @mode').groupby('model')['MAE'].mean().sort_values()
     winners[mode]=ranks.index[0]
 results=pd.DataFrame(records)
@@ -221,6 +231,7 @@ plt.show()
 
 
 def selected(mode):
+    """Build the settings chosen on the August and September folds."""
     name=winners[mode]
     return build_model(X[mode],'hgb' if name.startswith('hgb') else name,specifications[(mode,name)])
 fit=train.date.lt(TEST_START); test=~fit
@@ -231,6 +242,7 @@ for mode in ['full','core']:
     p=predict_positive(m,X[mode].loc[test])
     holdout[mode]=pd.DataFrame({'date':train.loc[test,'date'].to_numpy(),
                                'actual':train.loc[test,TARGET].to_numpy(),'predicted':p})
+    # Resample dates rather than rows to keep same-day loads together.
     daily=holdout[mode].assign(error=lambda f:abs(f.actual-f.predicted)).groupby('date').error.agg(['sum','count'])
     idx=rng.integers(0,len(daily),size=(1000,len(daily)))
     bootstrap=daily['sum'].to_numpy()[idx].sum(axis=1)/daily['count'].to_numpy()[idx].sum(axis=1)
@@ -273,6 +285,7 @@ display(segment.assign(abs_error=lambda f:abs(f.actual-f.predicted)).groupby('eq
     loads=('abs_error','size'),MAE=('abs_error','mean')).round(2))
 
 
+# This horizon check overlaps development data; it is not a second independent test.
 horizon_records=[]
 for mode in ['full','core']:
     m=selected(mode); mask=train.date.lt('2025-09-01')
@@ -286,16 +299,19 @@ horizon_metrics=pd.DataFrame(horizon_records)
 horizon_metrics.to_csv(OUT/'horizon_diagnostics.csv',index=False)
 display(horizon_metrics.round(3))
 
+
 final_models={}
 for mode in ['full','core']:
     final_models[mode]=selected(mode).fit(X[mode],train[TARGET])
     joblib.dump(final_models[mode],OUT/f'{mode}_model.joblib')
 raw_predictions=pd.DataFrame({'load_id':validation.load_id,
                               'predicted_rate':predict_positive(final_models['full'],features(validation,'full'))})
+# Match by ID and retain template order instead of assuming CSV row alignment.
 submission=template[['load_id']].merge(raw_predictions,on='load_id',how='left',validate='one_to_one',sort=False)
 assert submission.load_id.tolist()==template.load_id.tolist()
 assert submission.predicted_rate.notna().all()
 submission.to_csv(OUT/'validation_predictions.csv',index=False)
+# The core model uses exactly the fields supplied for December.
 december_completed=december.copy()
 december_completed['predicted_rate']=predict_positive(final_models['core'],features(december,'core'))
 (OUT/'data').mkdir(exist_ok=True)

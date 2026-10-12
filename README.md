@@ -17,6 +17,14 @@ The full model uses the supplied market signals and coordinates. The December
 file has only six input fields, so it needs a separate model trained on those fields.
 Both selected models are then fitted on all labeled rows for the final predictions.
 
+The three tree settings use 300 iterations and a learning rate of 0.06:
+
+| Setting | Maximum leaf nodes | L2 regularization |
+| --- | ---: | ---: |
+| hgb_1 | 15 | 10 |
+| hgb_2 | 31 | 10 |
+| hgb_3 | 31 | 50 |
+
 ## Findings and results
 
 There are 48,000 labeled loads. Training data has 300 missing weights and 374
@@ -57,6 +65,10 @@ python -m venv .venv
 The same code is in `spotter-freight-rate-prediction-ml-assessment.ipynb`.
 With the dependencies installed in your Jupyter environment, open it and run
 the cells in order. CPU is enough.
+
+The completed run used Python 3.12.10. Its package versions are recorded in
+[the output requirements](freight_submission/requirements.txt), and the seed,
+input hashes and selected settings are in [run metadata](freight_submission/run_metadata.json).
 
 Put the four assessment CSVs in this folder, `data/`, or `upload/`:
 
