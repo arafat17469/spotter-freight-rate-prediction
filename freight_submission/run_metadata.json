@@ -26,7 +26,7 @@
     }
   },
   "selected_models": {
-    "full": "hgb_3",
+    "full": "hgb_1",
     "core": "hgb_1"
   },
   "target": "posted_rate",
@@ -64,26 +64,27 @@
   "october_metrics": [
     {
       "mode": "full",
-      "model": "hgb_3",
-      "MAE": 196.656771767804,
-      "RMSE": 672.6754165209791,
-      "R2": 0.806336353844822,
-      "MAPE_pct": 9.373948499765682,
-      "MAE_day_bootstrap_low": 180.5145825867816,
-      "MAE_day_bootstrap_high": 212.4597931670189
+      "model": "hgb_1",
+      "MAE": 226.63906056466215,
+      "RMSE": 675.5140696943794,
+      "R2": 0.8046984052748999,
+      "MAPE_pct": 11.905330610136392,
+      "MAE_day_bootstrap_low": 210.4220876996699,
+      "MAE_day_bootstrap_high": 242.13706331375866
     },
     {
       "mode": "core",
       "model": "hgb_1",
-      "MAE": 169.0501404787406,
-      "RMSE": 661.1701234458758,
-      "R2": 0.8129044608334266,
-      "MAPE_pct": 8.82659493314458,
-      "MAE_day_bootstrap_low": 152.32287800711634,
-      "MAE_day_bootstrap_high": 186.37719101909437
+      "MAE": 164.12738963499407,
+      "RMSE": 658.3307268650212,
+      "R2": 0.8145079747040028,
+      "MAPE_pct": 8.404117115751825,
+      "MAE_day_bootstrap_low": 147.42805582019068,
+      "MAE_day_bootstrap_high": 182.03207169299094
     }
   ],
   "limitations": [
+    "Nonpositive weights treated as missing and imputed within training splits",
     "No hidden validation labels",
     "Core model required for December chart",
     "Ten months of training only partly cover annual seasonality",

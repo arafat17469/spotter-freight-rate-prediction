@@ -28,7 +28,10 @@ The three tree settings use 300 iterations and a learning rate of 0.06:
 ## Findings and results
 
 There are 48,000 labeled loads. Training data has 300 missing weights and 374
-missing market index values; numeric fields use median imputation. There are no
+missing market index values. Training also has 292 negative weights; validation
+has 145 negative weights, 165 missing weights and 249 missing market index values.
+Nonpositive weights are converted to missing before feature engineering. Numeric
+fields use median values learned only from the training portion of each split. There are no
 duplicate rows across the original predictor columns. The prediction data also
 has 736 pickup/delivery pairs absent from training, so unknown categories need
 to work at prediction time.
@@ -37,8 +40,8 @@ Results from the October holdout:
 
 | Inputs | Selected model | MAE ($) | RMSE ($) | R2 | MAPE (%) |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Full | hgb_3 | 196.66 | 672.68 | 0.806 | 9.37 |
-| Six December fields | hgb_1 | 169.05 | 661.17 | 0.813 | 8.83 |
+| Full | hgb_1 | 226.64 | 675.51 | 0.805 | 11.91 |
+| Six December fields | hgb_1 | 164.13 | 658.33 | 0.815 | 8.40 |
 
 The core model did better on October, although the full model uses more fields.
 The input sets were fixed before testing, so I kept their development-selected
@@ -89,8 +92,7 @@ file are needed.
 `score.py` and `assessment-readme.md` are the original supplied assessment files.
 The notebook explains each step alongside the code.
 
-Outputs go to `freight_submission/` beside the script, or under `/kaggle/working`
-on Kaggle. The completed run includes:
+Outputs are saved in `freight_submission/`. The completed run includes:
 
 - [Validation predictions](freight_submission/validation_predictions.csv)
 - [Completed December inputs](freight_submission/data/december_chart_inputs.csv)
@@ -107,6 +109,12 @@ The pipeline runs the original scorer automatically. To check the saved files ag
 
 The scorer checks IDs, columns and prediction values, then creates the December
 chart. It does not calculate the hidden-label score.
+
+To check invalid-weight cleaning, training-only imputation and unseen categories:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
 
 The run also saves model files, package versions and input hashes locally.
 `Spotter_Freight_Submission.zip` contains the handoff files without the model binaries.

@@ -101,6 +101,8 @@ print('Prediction:', validation.date.min().date(), 'to', validation.date.max().d
 
 quality = pd.DataFrame({'missing':train.isna().sum(),'dtype':train.dtypes.astype(str)})
 display(quality)
+print('Invalid training weights (<= 0):', int(train.weight.le(0).sum()))
+print('Invalid validation weights (<= 0):', int(validation.weight.le(0).sum()))
 print('Duplicate predictor rows:', train.duplicated(FULL).sum())
 print('Unseen submission lanes:', len(set(zip(validation.pickup,validation.delivery)) - set(zip(train.pickup,train.delivery))))
 monthly = train.groupby(train.date.dt.to_period('M')).agg(rows=(TARGET,'size'),median_rate=(TARGET,'median'))
@@ -130,6 +132,8 @@ def features(frame, mode):
     for c in x.columns:
         if c not in ['pickup','delivery','equipment','lane']:
             x[c] = pd.to_numeric(x[c],errors='raise').replace([np.inf,-np.inf],np.nan)
+    # Nonpositive cargo weights are invalid; impute them from training data.
+    x.loc[x['weight'].le(0), 'weight'] = np.nan
     x['log_distance'] = np.log1p(x['distance'].clip(lower=0))
     x['weight_per_mile'] = x['weight'] / x['distance'].clip(lower=1)
     if mode == 'full':
@@ -357,9 +361,10 @@ with PdfPages(report_path) as pdf:
     y = report_section(fig, 'Data and checks',
         f'{len(train):,} labeled loads cover January-October 2025. There are {len(validation):,} '
         f'unlabeled November/December loads. Training has {train.weight.isna().sum():,} missing weights '
-        f'and {train.market_index.isna().sum():,} missing market index values; numeric fields use median '
-        f'imputation. There are {train.duplicated(FULL).sum():,} duplicate predictor rows and '
-        f'{new_routes:,} pickup/delivery pairs absent from training.', y)
+        f'and {train.market_index.isna().sum():,} missing market index values. '
+        f'{train.weight.le(0).sum():,} nonpositive weights are treated as missing, then median-imputed '
+        f'within training splits. There are {train.duplicated(FULL).sum():,} duplicate predictor rows '
+        f'and {new_routes:,} new pickup/delivery pairs in validation.', y)
     y = report_section(fig, 'Training and evaluation',
         'Train through July to evaluate August, then through August to evaluate September. '
         'Select settings by mean development MAE and reserve October for testing. '
@@ -412,7 +417,7 @@ with PdfPages(report_path) as pdf:
         ('Model comparison', 'August and September development folds | lower MAE is better',
          OUT / 'model_comparison.png',
          'Each label shows mean development MAE in dollars. Colored bars mark the selected settings. '
-         'Full-input HGB 1 and HGB 3 scores are close; October is excluded from this comparison.'),
+         'Scores come from August and September only; October is excluded from model selection.'),
         ('October prediction errors', f'{len(holdout["full"]):,} held-out loads | '
          f'{min(1500, len(holdout["full"])):,} loads shown per model',
          OUT / 'october_diagnostics.png',
@@ -443,7 +448,7 @@ print('Report:', report_path)
 metadata={'seed':SEED,'versions':VERSIONS,'input_files':manifest,'selected_models':winners,
           'target':TARGET,'max_iter':MAX_ITER,'configs':CONFIGS,
           'development_folds':split_table.to_dict('records'),'october_metrics':test_records,
-          'limitations':['No hidden validation labels','Core model required for December chart',
+          'limitations':['Nonpositive weights treated as missing and imputed within training splits','No hidden validation labels','Core model required for December chart',
                          'Ten months of training only partly cover annual seasonality','Market signal availability assumed']}
 (OUT/'run_metadata.json').write_text(json.dumps(metadata,indent=2), encoding='utf-8')
 (OUT/'requirements.txt').write_text('\n'.join(f'{k}=={v}' for k,v in VERSIONS.items())+'\n', encoding='utf-8')

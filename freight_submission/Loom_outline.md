@@ -12,7 +12,7 @@ are fitted within each split.
 
 1:10-1:45 - Show the baseline comparison and October metrics. Explain the
 lowest-development-MAE choice and discuss the large errors visible in the plot.
-The full model's October MAE is $196.66; the core model's is $169.05.
+The full model's October MAE is $226.64; the core model's is $164.13.
 
 1:45-2:15 - Show features() and the two input sets. The December file lacks
 market signals and coordinates, which is why it uses a separate six-field model.
