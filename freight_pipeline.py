@@ -195,12 +195,30 @@ results.to_csv(OUT/'development_metrics.csv',index=False)
 leaderboard=results.groupby(['mode','model'])[['MAE','RMSE','MAPE_pct']].mean().reset_index()
 display(leaderboard.sort_values(['mode','MAE']).round(3))
 print('Development-selected models:',winners)
-fig,axes=plt.subplots(1,2,figsize=(12,4))
-for ax,mode in zip(axes,['full','core']):
-    tab=leaderboard.query('mode == @mode').sort_values('MAE',ascending=False)
-    ax.barh(tab.model,tab.MAE,color=COLORS[0] if mode=='full' else COLORS[1])
-    ax.set(title=f'{mode.title()} inputs: development MAE',xlabel='MAE ($)')
-fig.tight_layout(); fig.savefig(OUT/'model_comparison.png',bbox_inches='tight'); plt.show()
+# Plot the development scores with the selected model highlighted.
+fig, axes = plt.subplots(1, 2, figsize=(12.4, 5.1), sharex=True)
+names = {'median': 'Median baseline', 'ridge': 'Ridge',
+         'hgb_1': 'HGB 1', 'hgb_2': 'HGB 2', 'hgb_3': 'HGB 3'}
+maximum = leaderboard.MAE.max() * 1.22
+for ax, mode in zip(axes, ['full', 'core']):
+    tab = leaderboard.query('mode == @mode').sort_values('MAE')
+    selected_color = COLORS[0] if mode == 'full' else COLORS[1]
+    colors = [selected_color if name == winners[mode] else '#b8c6d1'
+              for name in tab.model]
+    labels = [names[name] + (' (selected)' if name == winners[mode] else '')
+              for name in tab.model]
+    bars = ax.barh(labels, tab.MAE, color=colors, height=.62)
+    ax.invert_yaxis()
+    ax.bar_label(bars, labels=[f'{value:,.1f}' for value in tab.MAE], padding=6, fontsize=10)
+    ax.set(title='Full inputs' if mode == 'full' else 'Six December fields',
+           xlabel='Mean August/September MAE ($)', xlim=(0, maximum))
+    ax.set_axisbelow(True)
+    ax.grid(axis='x', color='#e2e8f0', linewidth=.7)
+    ax.tick_params(axis='y', length=0, labelsize=10)
+fig.tight_layout(pad=1.4, w_pad=3)
+fig.savefig(OUT / 'model_comparison.png', dpi=180, bbox_inches='tight')
+plt.show()
+
 
 def selected(mode):
     name=winners[mode]
@@ -222,17 +240,38 @@ for mode in ['full','core']:
 test_metrics=pd.DataFrame(test_records)
 test_metrics.to_csv(OUT/'october_test_metrics.csv',index=False)
 display(test_metrics.round(3))
-fig,axes=plt.subplots(1,2,figsize=(12,4))
-for ax,mode in zip(axes,['full','core']):
-    h=holdout[mode]; sample=h.sample(min(1500,len(h)),random_state=SEED)
-    ax.scatter(sample.actual,sample.predicted,s=9,alpha=.35)
-    limits=[min(sample.actual.min(),sample.predicted.min()),max(sample.actual.max(),sample.predicted.max())]
-    ax.plot(limits,limits,color='#ef4444',linestyle='--')
-    ax.set(title=f'October test: {mode} inputs',xlabel='Actual posted rate ($)',ylabel='Predicted rate ($)')
-fig.tight_layout(); fig.savefig(OUT/'october_diagnostics.png',bbox_inches='tight'); plt.show()
+# Use the same limits and units on both axes to show prediction errors fairly.
+from matplotlib.ticker import StrMethodFormatter
+fig, axes = plt.subplots(1, 2, figsize=(12.4, 5.7))
+axis_limit = max(max(h.actual.max(), h.predicted.max()) for h in holdout.values()) * 1.05
+for ax, mode in zip(axes, ['full', 'core']):
+    h = holdout[mode]
+    sample = h.sample(min(1500, len(h)), random_state=SEED)
+    color = COLORS[0] if mode == 'full' else COLORS[1]
+    ax.scatter(sample.actual, sample.predicted, s=12, alpha=.45,
+               color=color, edgecolors='none', rasterized=True)
+    ax.plot([0, axis_limit], [0, axis_limit], color='#dc2626',
+            linestyle='--', linewidth=1.3, label='Predicted = actual')
+    ax.set(title='Full inputs' if mode == 'full' else 'Six December fields',
+           xlabel='Actual posted rate ($)', ylabel='Predicted rate ($)',
+           xlim=(0, axis_limit), ylim=(0, axis_limit))
+    ax.set_aspect('equal', adjustable='box')
+    ax.set_axisbelow(True)
+    ax.grid(color='#e2e8f0', linewidth=.6)
+    ax.xaxis.set_major_formatter(StrMethodFormatter('{x:,.0f}'))
+    ax.yaxis.set_major_formatter(StrMethodFormatter('{x:,.0f}'))
+    row = test_metrics.set_index('mode').loc[mode]
+    ax.text(.035, .965, f'MAE ${row.MAE:,.2f}\nRMSE ${row.RMSE:,.2f}',
+            transform=ax.transAxes, va='top', fontsize=10,
+            bbox={'facecolor': 'white', 'edgecolor': '#e2e8f0', 'pad': 6})
+    ax.legend(loc='lower right', fontsize=9, frameon=False)
+fig.tight_layout(pad=1.2, w_pad=2.5)
+fig.savefig(OUT / 'october_diagnostics.png', dpi=180, bbox_inches='tight')
+plt.show()
 segment=holdout['full'].copy(); segment['equipment']=train.loc[test,'equipment'].to_numpy()
 display(segment.assign(abs_error=lambda f:abs(f.actual-f.predicted)).groupby('equipment').agg(
     loads=('abs_error','size'),MAE=('abs_error','mean')).round(2))
+
 
 horizon_records=[]
 for mode in ['full','core']:
@@ -278,63 +317,111 @@ fig,ax=plt.subplots(figsize=(11,5)); ax.imshow(plt.imread(scorer_dir/'candidate_
 ax.axis('off'); plt.tight_layout(); plt.show()
 
 
-report_path=OUT/'Freight_Rate_Validation_Report.pdf'
+import textwrap
+
+report_path = OUT / 'Freight_Rate_Validation_Report.pdf'
+
+def report_footer(fig, number):
+    fig.text(.06, .035, 'Arafat Rahman | Spotter ML Engineer assessment',
+             fontsize=8.5, color='#64748b')
+    fig.text(.94, .035, f'{number} / 4', ha='right', fontsize=8.5, color='#64748b')
+
+def report_section(fig, heading, body, y):
+    lines = textwrap.fill(body, width=91)
+    fig.text(.07, y, heading, fontsize=11.5, weight='bold', color='#123047', va='top')
+    fig.text(.07, y-.029, lines, fontsize=10, color='#334155', va='top', linespacing=1.3, parse_math=False)
+    return y - .029 - .017 * len(lines.splitlines()) - .022
+
 with PdfPages(report_path) as pdf:
-    fig=plt.figure(figsize=(8.27,11.69)); fig.patch.set_facecolor('white')
-    fig.text(.08,.94,'Freight Rate Prediction',fontsize=23,color='#123047',weight='bold')
-    fig.text(.08,.905,'Validation report | Arafat Rahman',fontsize=12,color='#0f766e')
-    paragraphs=[
-        f'Data: {len(train):,} labeled loads from January through October 2025.\n'
-        f'The task is to predict {len(validation):,} November/December loads.\n'
-        'The target is posted_rate, in dollars.',
-        f'Data checks: {int(train.weight.isna().sum())} missing weights and '
-        f'{int(train.market_index.isna().sum())} missing market index values.\n'
-        'Numeric fields use median imputation within each training split.\n'
-        f'There are {int(train.duplicated(FULL).sum())} duplicate predictor rows and '
-        f'{len(set(zip(validation.pickup,validation.delivery)) - set(zip(train.pickup,train.delivery)))} new routes in the prediction data.\n'
-        'Unknown categories are handled by the encoders.',
-        'Split: train through July to evaluate August, then train through August\n'
-        'to evaluate September. Choose settings by mean development MAE.\n'
-        'Keep October for testing. IDs are excluded; preprocessing is fitted\n'
-        'on each training portion. Refit on all labeled rows for submission.',
-        'Models compared: median baseline, Ridge and three histogram gradient\n'
-        'boosting settings. Selected settings:\n'
-        f'Full inputs: {winners["full"]}. Six December fields: {winners["core"]}.',
-        'October test metrics (USD for MAE/RMSE):\n'
-        +test_metrics[['mode','MAE','RMSE','R2','MAPE_pct']].round(3).to_string(index=False),
-        'October MAE intervals: resample whole days 1,000 times and use the\n'
-        '2.5th and 97.5th percentiles. These describe variation across October\n'
-        'days, rather than uncertainty in each future load prediction.\n'
-        +test_metrics[['mode','MAE_day_bootstrap_low','MAE_day_bootstrap_high']].round(3).to_string(index=False),
-        'December chart: pickup, delivery, distance, equipment and weight stay\n'
-        'fixed; only the date changes. A separate model uses these six fields\n'
-        'because market signals and coordinates are absent from that file.',
-        'Limits: November/December labels are unavailable. The extra two-month\n'
-        'check overlaps September development data. Ten months of training\n'
-        'partly cover annual seasonality; tree models also have limited ability\n'
-        'to extend market trends. The December values are a forecast.',
-        'quote_signal is supplied for validation and is used as an input.\n'
-        'Its availability before the quoted rate would need checking in production.\n'
-        'The supplied scorer checks both CSVs and creates the December chart;\n'
-        'it does not calculate the hidden-label score.'
+    fig = plt.figure(figsize=(8.27, 11.69), facecolor='white')
+    fig.text(.07, .945, 'Freight rate prediction', fontsize=24, weight='bold', color='#123047')
+    fig.text(.07, .908, 'Validation approach and results', fontsize=12, color='#0f766e')
+    y = .86
+    new_routes = len(set(zip(validation.pickup, validation.delivery)) - set(zip(train.pickup, train.delivery)))
+    y = report_section(fig, 'Data and checks',
+        f'{len(train):,} labeled loads cover January-October 2025. There are {len(validation):,} '
+        f'unlabeled November/December loads. Training has {train.weight.isna().sum():,} missing weights '
+        f'and {train.market_index.isna().sum():,} missing market index values; numeric fields use median '
+        f'imputation. There are {train.duplicated(FULL).sum():,} duplicate predictor rows and '
+        f'{new_routes:,} pickup/delivery pairs absent from training.', y)
+    y = report_section(fig, 'Training and evaluation',
+        'Train through July to evaluate August, then through August to evaluate September. '
+        'Select settings by mean development MAE and reserve October for testing. '
+        'Imputers and encoders fit within each training split; IDs are excluded. '
+        'The final models refit on all labeled rows.', y)
+    y = report_section(fig, 'Model choice',
+        f'Compare a median baseline, Ridge and three histogram gradient boosting settings. '
+        f'The selected full model is {winners["full"]}; the six-field model is {winners["core"]}. '
+        'December uses a separate model because its inputs lack coordinates and market signals.', y)
+
+    fig.text(.07, y, 'October holdout', fontsize=11.5, weight='bold', color='#123047', va='top')
+    rows = []
+    for mode in ['full', 'core']:
+        r = test_metrics.set_index('mode').loc[mode]
+        rows.append(['Full' if mode == 'full' else 'Six fields', r.model,
+                     f'${r.MAE:,.2f}', f'${r.RMSE:,.2f}', f'{r.R2:.3f}', f'{r.MAPE_pct:.2f}%'])
+    table_ax = fig.add_axes([.07, y-.138, .86, .103])
+    table_ax.axis('off')
+    table = table_ax.table(cellText=rows, colLabels=['Inputs', 'Model', 'MAE', 'RMSE', 'R2', 'MAPE'],
+                          cellLoc='center', colWidths=[.19, .16, .17, .17, .13, .18], bbox=[0, 0, 1, 1])
+    table.auto_set_font_size(False)
+    table.set_fontsize(9.5)
+    for (row, col), cell in table.get_celld().items():
+        cell.set_edgecolor('#e2e8f0')
+        cell.set_linewidth(.7)
+        cell.set_facecolor('#123047' if row == 0 else ('#f1f5f9' if row % 2 else 'white'))
+        cell.get_text().set_color('white' if row == 0 else '#334155')
+        if row == 0: cell.get_text().set_weight('bold')
+    y -= .165
+    intervals = test_metrics.set_index('mode')
+    y = report_section(fig, 'MAE intervals',
+        f'Resampling October days 1,000 times gives 95% intervals of '
+        f'${intervals.loc["full", "MAE_day_bootstrap_low"]:.2f}-${intervals.loc["full", "MAE_day_bootstrap_high"]:.2f} '
+        f'for full inputs and ${intervals.loc["core", "MAE_day_bootstrap_low"]:.2f}-'
+        f'${intervals.loc["core", "MAE_day_bootstrap_high"]:.2f} for six fields. '
+        'These describe variation across October days, not uncertainty for each future load.', y)
+    y = report_section(fig, 'Limits',
+        'Future labels are unavailable. The two-month check overlaps September development data. '
+        'Ten training months only partly cover annual seasonality, and trees have limited trend '
+        'extrapolation. quote_signal is supplied for prediction; its availability before the '
+        'quoted rate needs checking in production. The scorer checks file validity, not hidden-label accuracy.', y)
+    assert y > .055, 'Summary content needs another page or shorter text'
+    report_footer(fig, 1)
+    pdf.savefig(fig)
+    plt.close(fig)
+
+    december_rates = pd.read_csv(OUT / 'data' / 'december_chart_inputs.csv').predicted_rate
+    spread = december_rates.max() - december_rates.min()
+    pages = [
+        ('Model comparison', 'August and September development folds | lower MAE is better',
+         OUT / 'model_comparison.png',
+         'Each label shows mean development MAE in dollars. Colored bars mark the selected settings. '
+         'Full-input HGB 1 and HGB 3 scores are close; October is excluded from this comparison.'),
+        ('October prediction errors', f'{len(holdout["full"]):,} held-out loads | '
+         f'{min(1500, len(holdout["full"])):,} loads shown per model',
+         OUT / 'october_diagnostics.png',
+         'Both axes use the same scale. The dashed line marks an exact prediction. '
+         'Some high-rate loads are underpredicted, which helps explain why RMSE exceeds MAE.'),
+        ('December fixed-route forecast', 'Lexington to Fort Wayne | 360 miles | Dry Van | 32,000 lb',
+         scorer_dir / 'candidate_december.png',
+         f'The original scorer chart uses a zoomed y-axis. Rates span '
+         f'${december_rates.min():.2f}-${december_rates.max():.2f}: a ${spread:.2f} range '
+         f'({100*spread/december_rates.mean():.1f}% of the mean). '
+         'Only date changes. These are model forecasts; future labels are unavailable.')
     ]
-    y=.85
-    for text in paragraphs:
-        height = .02 + .014 * len(text.splitlines())
-        if y - height < .08:
-            pdf.savefig(fig); plt.close(fig)
-            fig=plt.figure(figsize=(8.27,11.69)); fig.patch.set_facecolor('white')
-            fig.text(.08,.94,'Validation report - continued',fontsize=18,color='#123047',weight='bold')
-            y=.87
-        fig.text(.08,y,text,fontsize=9.5,va='top',family='monospace' if 'metrics (' in text else 'sans-serif')
-        y -= height
-    pdf.savefig(fig); plt.close(fig)
-    for title,path in [('Model comparison',OUT/'model_comparison.png'),
-                       ('October diagnostics',OUT/'october_diagnostics.png'),
-                       ('December 2025 fixed-lane forecast',scorer_dir/'candidate_december.png')]:
-        fig,ax=plt.subplots(figsize=(11.69,8.27)); ax.imshow(plt.imread(path)); ax.axis('off')
-        fig.suptitle(title,fontsize=17,color='#123047',weight='bold'); pdf.savefig(fig,bbox_inches='tight'); plt.close(fig)
-print('Report:',report_path)
+    for number, (title, subtitle, image_path, note) in enumerate(pages, start=2):
+        fig = plt.figure(figsize=(11.69, 7.4), facecolor='white')
+        fig.text(.06, .93, title, fontsize=22, weight='bold', color='#123047')
+        fig.text(.06, .88, subtitle, fontsize=10.5, color='#475569')
+        image_ax = fig.add_axes([.045, .18, .91, .65])
+        image_ax.imshow(plt.imread(image_path))
+        image_ax.axis('off')
+        fig.text(.06, .12, textwrap.fill(note, width=137), fontsize=9.5,
+                 color='#475569', va='top', linespacing=1.3, parse_math=False)
+        report_footer(fig, number)
+        pdf.savefig(fig)
+        plt.close(fig)
+print('Report:', report_path)
 
 
 metadata={'seed':SEED,'versions':VERSIONS,'input_files':manifest,'selected_models':winners,
