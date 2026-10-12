@@ -218,3 +218,22 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Assessment data and generated artifacts
+.venv/
+.ipynb_checkpoints/
+*.joblib
+Spotter_Freight_Submission.zip
+tmp/pdfs/
+.env.*
+!.env.example
+/freight_submission/
+/train-test.csv
+/train_test.csv
+/validation.csv
+/validation-predictions-template.csv
+/validation_predictions_template.csv
+/december-chart-inputs.csv
+/december_chart_inputs.csv
+/data/
+/upload/
