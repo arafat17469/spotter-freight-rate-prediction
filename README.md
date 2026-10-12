@@ -1,10 +1,52 @@
 # Freight rate prediction
 
-Spotter assessment: chronological validation and freight rate predictions.
+My solution to the Spotter ML Engineer assessment. The task is to predict
+`posted_rate` for 12,000 loads and make a December chart for the fixed
+Lexington to Fort Wayne route.
 
-## Run locally
+## Approach
 
-Use Python 3.10 or newer. From this project folder:
+The labeled data covers January through October 2025. The prediction data starts
+in November, so I used date-based splits rather than a random split. August and
+September are the development months; October is held out until model selection
+is finished. Imputers and encoders are fitted on the training portion of each split.
+
+I compared a median baseline, Ridge regression and three histogram gradient
+boosting settings. The lowest average development MAE selects each model.
+The full model uses the supplied market signals and coordinates. The December
+file has only six input fields, so it needs a separate model trained on those fields.
+Both selected models are then fitted on all labeled rows for the final predictions.
+
+## Findings and results
+
+There are 48,000 labeled loads. Training data has 300 missing weights and 374
+missing market index values; numeric fields use median imputation. There are no
+duplicate rows across the original predictor columns. The prediction data also
+has 736 pickup/delivery pairs absent from training, so unknown categories need
+to work at prediction time.
+
+Results from the October holdout:
+
+| Inputs | Selected model | MAE ($) | RMSE ($) | R2 | MAPE (%) |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Full | hgb_3 | 196.66 | 672.68 | 0.806 | 9.37 |
+| Six December fields | hgb_1 | 169.05 | 661.17 | 0.813 | 8.83 |
+
+The core model did better on October, although the full model uses more fields.
+The input sets were fixed before testing, so I kept their development-selected
+models for their respective tasks. RMSE is much higher than MAE; some large
+errors remain, as the actual-versus-predicted plot shows.
+
+These results describe the October holdout. The November/December labels are
+not available. The extra two-month check overlaps September development data,
+so it is a horizon check rather than another independent test. With only ten
+months of training data, the December chart has limited evidence for seasonal
+behavior. `quote_signal` is used because it is supplied for prediction; its
+availability before the quoted rate would need checking in a production system.
+
+## Run
+
+Use Python 3.10 or newer. In PowerShell, from the project folder:
 
 ```powershell
 python -m venv .venv
@@ -12,44 +54,48 @@ python -m venv .venv
 .\.venv\Scripts\python.exe freight_pipeline.py
 ```
 
-Alternatively, open `spotter-freight-rate-prediction-ml-assessment.ipynb` in a
-Jupyter environment with the dependencies installed and run all cells.
+The same code is in `spotter-freight-rate-prediction-ml-assessment.ipynb`.
+With the dependencies installed in your Jupyter environment, open it and run
+the cells in order. CPU is enough.
 
-The four provided CSVs may stay in this folder, `data/`, or `upload/`:
+Put the four assessment CSVs in this folder, `data/`, or `upload/`:
 
-- `train-test.csv` (also accepts `train_test.csv`)
+- `train-test.csv`
 - `validation.csv`
-- `validation-predictions-template.csv` (also accepts `validation_predictions_template.csv`)
-- `december-chart-inputs.csv` (also accepts `december_chart_inputs.csv`)
+- `validation-predictions-template.csv`
+- `december-chart-inputs.csv`
 
-For a different location, set `$env:SPOTTER_DATA_DIR = 'C:\path\to\data'` before
-running. That folder must contain all four files. On Kaggle, attach the private
-dataset; the notebook detects the folder under `/kaggle/input` automatically.
+Filenames with underscores also work. For another folder, set
+`$env:SPOTTER_DATA_DIR = 'C:\path\to\data'` before running. On Kaggle, attach
+the dataset and run all cells; the code searches `/kaggle/input`.
+The supplied datasets are kept out of this repository. No API keys or `.env`
+file are needed.
 
-## Outputs and validation
+## Files
 
-Outputs are saved in `freight_submission/` beside the script (or under
-`/kaggle/working` on Kaggle):
+`freight_pipeline.py` runs training, prediction, scoring and report generation.
+`score.py` and `assessment-readme.md` are the original supplied assessment files.
+The notebook explains each step alongside the code.
 
-- `validation_predictions.csv`: 12,000 rows with `load_id,predicted_rate`.
-- `data/december_chart_inputs.csv`: 31 completed fixed December inputs.
-- `scorer_results/candidate_december.png`: chart from the original supplied scorer.
-- `Freight_Rate_Validation_Report.pdf`: split approach, measured metrics and chart.
-- Metrics CSVs, model artifacts, run metadata, source and Loom outline.
+Outputs go to `freight_submission/` beside the script, or under `/kaggle/working`
+on Kaggle. The completed run includes:
 
-The pipeline runs the employer's scorer automatically. To run it separately:
+- [Validation predictions](freight_submission/validation_predictions.csv)
+- [Completed December inputs](freight_submission/data/december_chart_inputs.csv)
+- [December chart](freight_submission/scorer_results/candidate_december.png)
+- [Validation report](freight_submission/Freight_Rate_Validation_Report.pdf)
+- [Development metrics](freight_submission/development_metrics.csv) and [October metrics](freight_submission/october_test_metrics.csv)
+- [Loom notes](freight_submission/Loom_outline.md)
+
+The pipeline runs the original scorer automatically. To check the saved files again:
 
 ```powershell
 .\.venv\Scripts\python.exe score.py --predictions freight_submission/validation_predictions.csv --december-predictions freight_submission/data/december_chart_inputs.csv --output-dir freight_submission/scorer_results
 ```
 
-August and September development folds select the model by mean MAE. October is
-reserved for the final temporal test. Models then refit on all labeled data.
-Validation loads use the full feature set; December chart inputs use a separate
-model trained on the six available fields. Hidden validation accuracy is unknown;
-the scorer checks file validity and generates the chart.
+The scorer checks IDs, columns and prediction values, then creates the December
+chart. It does not calculate the hidden-label score.
 
-`Spotter_Freight_Submission.zip` packages the generated handoff files. Keep the
-provided data private as described in the notebook. Submit an accessible code
-repository, predictions, report, and your own 2–3 minute Loom walkthrough according
-to the assessment instructions. The pipeline does not upload or submit anything.
+The run also saves model files, package versions and input hashes locally.
+`Spotter_Freight_Submission.zip` contains the handoff files without the model binaries.
+The 2-3 minute Loom recording is a separate submission item.

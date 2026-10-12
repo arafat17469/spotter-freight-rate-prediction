@@ -1,4 +1,4 @@
-# Generated from the assessment notebook.
+# Training and output code from the assessment notebook.
 from pathlib import Path
 import os, shutil
 import json, hashlib, platform, time, zipfile, subprocess, sys, importlib.metadata
@@ -109,7 +109,8 @@ axes[1].plot(monthly.index.astype(str),monthly.median_rate,marker='o',color=COLO
 axes[1].set(title='Monthly median: changing load mix',xlabel='Training month',ylabel='Median posted rate ($)')
 axes[1].tick_params(axis='x',rotation=45)
 fig.tight_layout(); fig.savefig(OUT/'data_overview.png',bbox_inches='tight'); plt.show()
-print('Monthly differences combine market change and load mix; they are not causal estimates.')
+print('Monthly medians also depend on which loads appear that month.')
+
 
 def features(frame, mode):
     cols = FULL if mode == 'full' else CORE
@@ -135,7 +136,7 @@ def features(frame, mode):
         x['longitude_delta'] = x['delivery_lon'] - x['pickup_lon']
     return x
 X = {mode:features(train,mode) for mode in ['full','core']}
-# All units stay in the source units: distance in miles, weight in lb and rates in dollars.
+# Keep the source units: miles, pounds and dollars.
 def build_model(x, name, config=None):
     cat = x.select_dtypes(include=['object','string']).columns.tolist()
     num = [c for c in x.columns if c not in cat]
@@ -158,6 +159,7 @@ def metrics(y,p):
     return {'MAE':float(mean_absolute_error(y,p)), 'RMSE':float(np.sqrt(mean_squared_error(y,p))),
             'R2':float(r2_score(y,p)), 'MAPE_pct':float(np.mean(np.abs((np.asarray(y)-p)/np.asarray(y)))*100)}
 print('Feature counts:', {k:v.shape[1] for k,v in X.items()})
+
 
 FOLDS = [('August',pd.Timestamp('2025-08-01'),pd.Timestamp('2025-09-01')),
          ('September',pd.Timestamp('2025-09-01'),pd.Timestamp('2025-10-01'))]
@@ -260,9 +262,10 @@ december_completed['predicted_rate']=predict_positive(final_models['core'],featu
 (OUT/'data').mkdir(exist_ok=True)
 december_completed.to_csv(OUT/'data'/'december_chart_inputs.csv',index=False)
 display(submission.head()); display(december_completed.head())
-print('These are predictions, not observed November/December outcomes.')
+print('Saved validation and December predictions.')
 
-# Exact score.py downloaded from the supplied assessment attachment.
+
+# Use the supplied scorer without changing its checks or chart.
 scorer_dir=OUT/'scorer_results'
 scorer_path=OUT/'score.py'
 scorer_path.write_text('from __future__ import annotations\n\nimport argparse\nfrom pathlib import Path\n\nimport matplotlib\n\nmatplotlib.use("Agg")\nimport matplotlib.pyplot as plt\nimport numpy as np\nimport pandas as pd\n\n\nEXPECTED_ROWS = 12_000\nEXPECTED_IDS = {f"TE-{index:06d}" for index in range(1, EXPECTED_ROWS + 1)}\nDECEMBER_DATES = pd.date_range("2025-12-01", "2025-12-31", freq="D")\nFIXED_PICKUP = "Lexington"\nFIXED_DELIVERY = "Fort Wayne"\nFIXED_DISTANCE = 360.0\nFIXED_EQUIPMENT = "Dry Van"\nFIXED_WEIGHT = 32_000.0\n\n\ndef fail(message: str) -> None:\n    raise SystemExit(f"ERROR: {message}")\n\n\ndef read_csv(path: Path, label: str) -> pd.DataFrame:\n    if not path.is_file():\n        fail(f"{label} file not found: {path}")\n    try:\n        return pd.read_csv(path)\n    except Exception as exc:\n        fail(f"could not read {label}: {exc}")\n\n\ndef numeric_series(frame: pd.DataFrame, column: str, label: str) -> pd.Series:\n    values = pd.to_numeric(frame[column], errors="coerce")\n    if values.isna().any() or not np.isfinite(values).all():\n        fail(f"{label} contains invalid {column} values")\n    return values.astype(float)\n\n\ndef validate_predictions(predictions: pd.DataFrame) -> None:\n    if list(predictions.columns) != ["load_id", "predicted_rate"]:\n        fail("predictions must contain exactly two columns in this order: load_id,predicted_rate")\n    if len(predictions) != EXPECTED_ROWS:\n        fail(f"predictions must contain exactly {EXPECTED_ROWS:,} rows")\n    if predictions["load_id"].isna().any() or predictions["load_id"].duplicated().any():\n        fail("predictions contains missing or duplicate load_id values")\n\n    submitted_ids = set(predictions["load_id"].astype(str))\n    missing = EXPECTED_IDS - submitted_ids\n    extra = submitted_ids - EXPECTED_IDS\n    if missing or extra:\n        fail(\n            "prediction IDs do not match the validation set "\n            f"(missing={len(missing)}, extra={len(extra)})"\n        )\n\n    predicted_rate = numeric_series(predictions, "predicted_rate", "predictions")\n    if (predicted_rate <= 0).any():\n        fail("predictions contains non-positive predicted_rate values")\n\n\ndef validate_december(frame: pd.DataFrame) -> pd.DataFrame:\n    columns = ["pickup", "delivery", "distance", "equipment", "weight", "date", "predicted_rate"]\n    if list(frame.columns) != columns:\n        fail("December predictions must keep the original seven columns and column order")\n\n    result = frame.copy()\n    result["date"] = pd.to_datetime(result["date"], errors="coerce")\n    if result["date"].isna().any():\n        fail("December predictions contains invalid dates")\n    result["distance"] = numeric_series(result, "distance", "December predictions")\n    result["weight"] = numeric_series(result, "weight", "December predictions")\n    result["predicted_rate"] = numeric_series(result, "predicted_rate", "December predictions")\n\n    if result["date"].duplicated().any():\n        fail("December predictions contains duplicate dates")\n    if len(result) != 31 or set(result["date"]) != set(DECEMBER_DATES):\n        fail("December predictions must contain one row for every day from 2025-12-01 to 2025-12-31")\n    if not result["pickup"].eq(FIXED_PICKUP).all():\n        fail(f"December pickup must be {FIXED_PICKUP} for all rows")\n    if not result["delivery"].eq(FIXED_DELIVERY).all():\n        fail(f"December delivery must be {FIXED_DELIVERY} for all rows")\n    if not np.isclose(result["distance"], FIXED_DISTANCE).all():\n        fail(f"December distance must be {FIXED_DISTANCE:g} for all rows")\n    if not result["equipment"].eq(FIXED_EQUIPMENT).all():\n        fail(f"December equipment must be {FIXED_EQUIPMENT} for all rows")\n    if not np.isclose(result["weight"], FIXED_WEIGHT).all():\n        fail(f"December weight must be {FIXED_WEIGHT:g} for all rows")\n    if (result["predicted_rate"] <= 0).any():\n        fail("December predicted_rate values must be positive")\n    return result.sort_values("date")\n\n\ndef save_december_chart(december: pd.DataFrame, output: Path) -> None:\n    figure, axis = plt.subplots(figsize=(10.8, 4.8), dpi=180)\n    color = "#064A56"\n    axis.plot(\n        december["date"],\n        december["predicted_rate"],\n        color=color,\n        linewidth=2.6,\n        marker="o",\n        markersize=3.2,\n    )\n    floor = float(december["predicted_rate"].min())\n    axis.fill_between(\n        december["date"],\n        december["predicted_rate"],\n        floor - max(10.0, floor * 0.02),\n        color=color,\n        alpha=0.08,\n    )\n    axis.set_title("Candidate: December 2025 Predicted Load Rate", loc="left", fontsize=15, fontweight="bold", pad=12)\n    axis.set_ylabel("Predicted rate ($)")\n    axis.grid(axis="y", color="#D9E2E4", linewidth=0.8)\n    axis.spines[["top", "right"]].set_visible(False)\n    axis.spines[["left", "bottom"]].set_color("#9DAFB3")\n    axis.tick_params(axis="x", rotation=35)\n    axis.text(\n        0,\n        -0.40,\n        "Fixed inputs: Lexington to Fort Wayne | 360 miles | Dry Van | 32,000 lb | only date changes",\n        transform=axis.transAxes,\n        fontsize=9.5,\n        color="#455A60",\n    )\n    figure.tight_layout(rect=(0, 0.12, 1, 1))\n    figure.savefig(output, bbox_inches="tight")\n    plt.close(figure)\n\n\ndef main() -> None:\n    parser = argparse.ArgumentParser(\n        description="Validate candidate output files and generate the fixed December chart."\n    )\n    parser.add_argument("--predictions", required=True, help="CSV with load_id,predicted_rate")\n    parser.add_argument(\n        "--december-predictions",\n        required=True,\n        help="Completed data/december_chart_inputs.csv",\n    )\n    parser.add_argument("--output-dir", default="scorer_results")\n    args = parser.parse_args()\n\n    validate_predictions(read_csv(Path(args.predictions), "predictions"))\n    december = validate_december(read_csv(Path(args.december_predictions), "December predictions"))\n    output = Path(args.output_dir)\n    output.mkdir(parents=True, exist_ok=True)\n    chart = output / "candidate_december.png"\n    save_december_chart(december, chart)\n\n    print(f"Validated {EXPECTED_ROWS:,} final predictions.")\n    print("Validated 31 fixed December predictions.")\n    print(f"Created chart: {chart}")\n    print("Final validation metrics are calculated by Spotter after submission.")\n\n\nif __name__ == "__main__":\n    main()\n', encoding='utf-8')
@@ -281,18 +284,43 @@ with PdfPages(report_path) as pdf:
     fig.text(.08,.94,'Freight Rate Prediction',fontsize=23,color='#123047',weight='bold')
     fig.text(.08,.905,'Validation report | Arafat Rahman',fontsize=12,color='#0f766e')
     paragraphs=[
-        f'Data: {len(train):,} labeled January–October 2025 loads; 12,000 unlabeled\nNovember–December loads. Target: posted_rate in dollars.',
-        'Split: expanding windows ending July/August evaluate August/September.\nSelect each input mode by mean development MAE; reserve October as a\nlocked test. IDs are excluded and imputers/encoders fit on training only.',
-        f'Selected full-input model: {winners["full"]}.\nSelected core-input model: {winners["core"]}.',
-        'October test metrics (USD for MAE/RMSE):\n'+test_metrics[['mode','MAE','RMSE','R2','MAPE_pct']].round(3).to_string(index=False),
-        'Uncertainty: 95% date-block bootstrap intervals for October MAE.\nThese cover sampled October-day variation, not model or forecast uncertainty.\n'+test_metrics[['mode','MAE_day_bootstrap_low','MAE_day_bootstrap_high']].round(3).to_string(index=False),
-        'December chart: a separate core-input model uses pickup, delivery,\ndistance, equipment, weight and date. Market signals and coordinates are\nabsent from the chart inputs and are not fabricated.',
-        'Limits: no hidden-label accuracy is available. Only ten training months\nare observed; annual seasonality is weakly identified. Tree models cannot\nreliably extrapolate market trends. Fixed-lane December behavior is a\nforecast, not a validated estimate of actual future daily rates.\nquote_signal is assumed available at inference because it is supplied;\nits provenance should be checked for target leakage in production.',
-        'The provided assessment instruction screenshot was reviewed. Verify any\nadditional assessment pages before submission. Scorer checks validate output\nformat and positivity; Spotter computes final hidden-label metrics.'
+        f'Data: {len(train):,} labeled loads from January through October 2025.\n'
+        f'The task is to predict {len(validation):,} November/December loads.\n'
+        'The target is posted_rate, in dollars.',
+        f'Data checks: {int(train.weight.isna().sum())} missing weights and '
+        f'{int(train.market_index.isna().sum())} missing market index values.\n'
+        'Numeric fields use median imputation within each training split.\n'
+        f'There are {int(train.duplicated(FULL).sum())} duplicate predictor rows and '
+        f'{len(set(zip(validation.pickup,validation.delivery)) - set(zip(train.pickup,train.delivery)))} new routes in the prediction data.\n'
+        'Unknown categories are handled by the encoders.',
+        'Split: train through July to evaluate August, then train through August\n'
+        'to evaluate September. Choose settings by mean development MAE.\n'
+        'Keep October for testing. IDs are excluded; preprocessing is fitted\n'
+        'on each training portion. Refit on all labeled rows for submission.',
+        'Models compared: median baseline, Ridge and three histogram gradient\n'
+        'boosting settings. Selected settings:\n'
+        f'Full inputs: {winners["full"]}. Six December fields: {winners["core"]}.',
+        'October test metrics (USD for MAE/RMSE):\n'
+        +test_metrics[['mode','MAE','RMSE','R2','MAPE_pct']].round(3).to_string(index=False),
+        'October MAE intervals: resample whole days 1,000 times and use the\n'
+        '2.5th and 97.5th percentiles. These describe variation across October\n'
+        'days, rather than uncertainty in each future load prediction.\n'
+        +test_metrics[['mode','MAE_day_bootstrap_low','MAE_day_bootstrap_high']].round(3).to_string(index=False),
+        'December chart: pickup, delivery, distance, equipment and weight stay\n'
+        'fixed; only the date changes. A separate model uses these six fields\n'
+        'because market signals and coordinates are absent from that file.',
+        'Limits: November/December labels are unavailable. The extra two-month\n'
+        'check overlaps September development data. Ten months of training\n'
+        'partly cover annual seasonality; tree models also have limited ability\n'
+        'to extend market trends. The December values are a forecast.',
+        'quote_signal is supplied for validation and is used as an input.\n'
+        'Its availability before the quoted rate would need checking in production.\n'
+        'The supplied scorer checks both CSVs and creates the December chart;\n'
+        'it does not calculate the hidden-label score.'
     ]
     y=.85
     for text in paragraphs:
-        height = .032 + .018 * len(text.splitlines())
+        height = .02 + .014 * len(text.splitlines())
         if y - height < .08:
             pdf.savefig(fig); plt.close(fig)
             fig=plt.figure(figsize=(8.27,11.69)); fig.patch.set_facecolor('white')
@@ -308,18 +336,20 @@ with PdfPages(report_path) as pdf:
         fig.suptitle(title,fontsize=17,color='#123047',weight='bold'); pdf.savefig(fig,bbox_inches='tight'); plt.close(fig)
 print('Report:',report_path)
 
+
 metadata={'seed':SEED,'versions':VERSIONS,'input_files':manifest,'selected_models':winners,
           'target':TARGET,'max_iter':MAX_ITER,'configs':CONFIGS,
           'development_folds':split_table.to_dict('records'),'october_metrics':test_records,
           'limitations':['No hidden validation labels','Core model required for December chart',
-                         'Provided instruction screenshot reviewed; full PDF not supplied','Market signal availability assumed']}
+                         'Ten months of training only partly cover annual seasonality','Market signal availability assumed']}
 (OUT/'run_metadata.json').write_text(json.dumps(metadata,indent=2), encoding='utf-8')
 (OUT/'requirements.txt').write_text('\n'.join(f'{k}=={v}' for k,v in VERSIONS.items())+'\n', encoding='utf-8')
-(OUT/'README.md').write_text("""# Freight rate prediction\n\nRun the supplied notebook on Kaggle CPU with the four private input CSVs attached.\nUse Run All. No Internet or GPU is required. Outputs are under freight_submission/.\n\nFor a local run, install requirements.txt and place the four original CSV files beside the script, in upload/\nor data/. Set SPOTTER_DATA_DIR for another location. Run `python freight_pipeline.py` if the exported script is present, or execute\nthe notebook top-to-bottom with Jupyter. The script requires IPython.\n\nThe two models use different input sets: full for validation.csv, core for the fixed\nDecember chart. August/September tune; October is the locked temporal test.\nscore.py is the original supplied scorer and is run automatically.\n\nSubmit the code repository, validation_predictions.csv, completed December inputs,\nPDF report and your own 2–3 minute Loom recording as required by the assessment.\nReview the full assessment PDF for additional requirements.\n""", encoding="utf-8")
+(OUT/'README.md').write_text('# Freight rate prediction\n\nThese files come from the Spotter assessment pipeline.\n\nTo repeat the run, install requirements.txt, put the four original CSVs beside\nfreight_pipeline.py (or in data/ or upload/), and run `python freight_pipeline.py`.\nSet SPOTTER_DATA_DIR for a different input folder. For the notebook, run the\ncells in order. On Kaggle, attach the dataset first. CPU is enough.\n\nAugust and September select the model settings. October is the held-out test.\nThe final fit uses all labeled rows. Validation loads use the full input set;\nthe December chart uses the six available fields.\n\nvalidation_predictions.csv contains the 12,000 final predictions. The completed\nDecember inputs are in data/december_chart_inputs.csv. The original score.py checks\nboth files and creates scorer_results/candidate_december.png. The PDF explains\nthe splits and results, and includes that chart. Run details and metrics are\nsaved alongside it. Hidden validation labels are not available.\n\nThe original datasets are not included. The Loom recording is a separate item.\n', encoding='utf-8')
 with (OUT/'requirements.txt').open('a', encoding='utf-8') as f: f.write('ipython>=8,<10\n')
-(OUT/'Loom_outline.md').write_text("""# Record your own 2–3 minute walkthrough\n\n0:00–0:30: Explain the target and training/prediction periods.\n0:30–1:15: Explain expanding development windows and the locked October test.\n1:15–1:50: Show measured MAE/RMSE and why models were selected.\n1:50–2:25: Explain the separate core-input December model and forecast limitations.\n2:25–3:00: Show validated CSVs, chart, report and reproduction steps.\n\nUse values from your completed run. Do not claim hidden-label scores or bonus eligibility.\n""", encoding="utf-8")
+(OUT/'Loom_outline.md').write_text("# Loom walkthrough notes\n\nAim for 2-3 minutes. Keep the notebook and completed outputs open.\n\n0:00-0:30 - Explain posted_rate and the January-October training period. Show\nthe missing weights and market index values, plus the new routes in validation.\n\n0:30-1:10 - Show the date splits. August and September choose the settings;\nOctober tests the selected models. Explain why random splitting would be a\nweaker match for predicting later months. Point out that imputation and encoding\nare fitted within each split.\n\n1:10-1:45 - Show the baseline comparison and October metrics. Explain the\nlowest-development-MAE choice and discuss the large errors visible in the plot.\nThe full model's October MAE is FULL_MAE; the core model's is CORE_MAE.\n\n1:45-2:15 - Show features() and the two input sets. The December file lacks\nmarket signals and coordinates, which is why it uses a separate six-field model.\nMention the short seasonal history and the unavailable future labels.\n\n2:15-2:45 - Show the ID-matched CSV, the scorer output and the December chart\nin the report. Finish with the README command for repeating the run.\n".replace('FULL_MAE', f'${test_records[0]["MAE"]:.2f}').replace('CORE_MAE', f'${test_records[1]["MAE"]:.2f}'), encoding='utf-8')
 
-# Export current code; avoid embedding a stale second copy of the pipeline.
+
+# Export current code; skip this packaging cell in the script.
 source_candidates = [WORKSPACE / 'spotter-freight-rate-prediction-ml-assessment.ipynb',
                      DATA_DIR / 'spotter-freight-rate-prediction-ml-assessment.ipynb',
                      Path('/kaggle/working/__notebook__.ipynb'),
@@ -336,7 +366,7 @@ elif '__file__' in globals():
     if Path(__file__).resolve() != export_path.resolve():
         shutil.copy2(__file__, export_path)
 else:
-    print('Notebook source unavailable; include the downloaded notebook in your code handoff.')
+    print('Notebook source was not found. Include the notebook separately in the handoff.')
 archive = ROOT / 'Spotter_Freight_Submission.zip'
 with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as z:
     for p in sorted(OUT.rglob('*')):

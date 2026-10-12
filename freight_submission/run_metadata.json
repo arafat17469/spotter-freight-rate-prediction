@@ -1,0 +1,92 @@
+{
+  "seed": 42,
+  "versions": {
+    "numpy": "2.5.4",
+    "pandas": "2.3.3",
+    "matplotlib": "3.11.2",
+    "scikit-learn": "1.9.1",
+    "joblib": "1.6.0"
+  },
+  "input_files": {
+    "train": {
+      "filename": "train-test.csv",
+      "sha256": "892980fd20bac7ac0ca4ec31d3981fca48d52dec88e4f02642ab955f1efb40fe"
+    },
+    "validation": {
+      "filename": "validation.csv",
+      "sha256": "f6cdc7c367b397b90b319fc7ad30fd0e1893fd6a714816dda54c303b0fe71151"
+    },
+    "template": {
+      "filename": "validation-predictions-template.csv",
+      "sha256": "79de15adabcf807b8636b9b47ebe964d451fbcb343056c44a2c4b54a219891c6"
+    },
+    "december": {
+      "filename": "december-chart-inputs.csv",
+      "sha256": "d4a0cba969e315eae3c967268914960547dc6589568e07bf6182551bdc267e6e"
+    }
+  },
+  "selected_models": {
+    "full": "hgb_3",
+    "core": "hgb_1"
+  },
+  "target": "posted_rate",
+  "max_iter": 300,
+  "configs": [
+    {
+      "max_leaf_nodes": 15,
+      "l2_regularization": 10.0
+    },
+    {
+      "max_leaf_nodes": 31,
+      "l2_regularization": 10.0
+    },
+    {
+      "max_leaf_nodes": 31,
+      "l2_regularization": 50.0
+    }
+  ],
+  "development_folds": [
+    {
+      "fold": "August",
+      "fit_rows": 33718,
+      "evaluate_rows": 4759,
+      "fit_end": "2025-07-31",
+      "evaluate_start": "2025-08-01"
+    },
+    {
+      "fold": "September",
+      "fit_rows": 38477,
+      "evaluate_rows": 4670,
+      "fit_end": "2025-08-31",
+      "evaluate_start": "2025-09-01"
+    }
+  ],
+  "october_metrics": [
+    {
+      "mode": "full",
+      "model": "hgb_3",
+      "MAE": 196.656771767804,
+      "RMSE": 672.6754165209791,
+      "R2": 0.806336353844822,
+      "MAPE_pct": 9.373948499765682,
+      "MAE_day_bootstrap_low": 180.5145825867816,
+      "MAE_day_bootstrap_high": 212.4597931670189
+    },
+    {
+      "mode": "core",
+      "model": "hgb_1",
+      "MAE": 169.0501404787406,
+      "RMSE": 661.1701234458758,
+      "R2": 0.8129044608334266,
+      "MAPE_pct": 8.82659493314458,
+      "MAE_day_bootstrap_low": 152.32287800711634,
+      "MAE_day_bootstrap_high": 186.37719101909437
+    }
+  ],
+  "limitations": [
+    "No hidden validation labels",
+    "Core model required for December chart",
+    "Ten months of training only partly cover annual seasonality",
+    "Market signal availability assumed"
+  ]
+}
